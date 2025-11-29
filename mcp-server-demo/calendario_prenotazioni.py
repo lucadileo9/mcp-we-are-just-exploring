@@ -14,33 +14,12 @@ def crea_database():
     conn = sqlite3.connect('calendario_prenotazioni.db')
     cursor = conn.cursor()
     
-    # Tabella CLIENTI
+    # Tabella CATEGORIE (opzionale, per classificare gli appuntamenti)
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS clienti (
-            id_cliente INTEGER PRIMARY KEY AUTOINCREMENT,
-            nome TEXT NOT NULL,
-            cognome TEXT NOT NULL,
-            email TEXT UNIQUE,
-            telefono TEXT NOT NULL,
-            telefono_secondario TEXT,
-            via TEXT,
-            numero_civico TEXT,
-            citta TEXT,
-            cap TEXT,
-            provincia TEXT,
-            note TEXT,
-            data_registrazione TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            attivo BOOLEAN DEFAULT 1
-        )
-    ''')
-    
-    # Tabella TIPI_APPUNTAMENTO
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tipi_appuntamento (
-            id_tipo INTEGER PRIMARY KEY AUTOINCREMENT,
-            nome_tipo TEXT NOT NULL UNIQUE,
+        CREATE TABLE IF NOT EXISTS categorie (
+            id_categoria INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome_categoria TEXT NOT NULL UNIQUE,
             descrizione TEXT,
-            durata_minuti INTEGER DEFAULT 30,
             colore TEXT
         )
     ''')
@@ -49,23 +28,25 @@ def crea_database():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS appuntamenti (
             id_appuntamento INTEGER PRIMARY KEY AUTOINCREMENT,
-            id_cliente INTEGER NOT NULL,
-            id_tipo INTEGER,
-            data_appuntamento DATE NOT NULL,
-            ora_inizio TIME NOT NULL,
-            ora_fine TIME NOT NULL,
             titolo TEXT NOT NULL,
             descrizione TEXT,
+            data_appuntamento DATE NOT NULL,
+            ora_inizio TIME,
+            ora_fine TIME,
+            id_categoria INTEGER,
+            priorita TEXT DEFAULT 'media',
+            difficolta INTEGER DEFAULT 3,
+            tempo_stimato_ore REAL,
+            stato TEXT DEFAULT 'da_fare',
             urgente BOOLEAN DEFAULT 0,
-            stato TEXT DEFAULT 'confermato',
-            luogo TEXT,
             note TEXT,
             data_creazione TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             data_modifica TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            promemoria_inviato BOOLEAN DEFAULT 0,
-            FOREIGN KEY (id_cliente) REFERENCES clienti(id_cliente),
-            FOREIGN KEY (id_tipo) REFERENCES tipi_appuntamento(id_tipo),
-            CHECK (stato IN ('confermato', 'completato', 'cancellato', 'in_attesa', 'non_presentato'))
+            data_completamento TIMESTAMP,
+            FOREIGN KEY (id_categoria) REFERENCES categorie(id_categoria),
+            CHECK (priorita IN ('bassa', 'media', 'alta', 'critica')),
+            CHECK (stato IN ('da_fare', 'in_corso', 'completato', 'cancellato', 'posticipato')),
+            CHECK (difficolta BETWEEN 1 AND 10)
         )
     ''')
     
@@ -83,8 +64,8 @@ def crea_database():
     
     # Indici per migliorare le performance
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_appuntamenti_data ON appuntamenti(data_appuntamento)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_appuntamenti_cliente ON appuntamenti(id_cliente)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_clienti_email ON clienti(email)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_appuntamenti_priorita ON appuntamenti(priorita)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_appuntamenti_stato ON appuntamenti(stato)')
     
     conn.commit()
     print("✓ Database e tabelle creati con successo")
@@ -94,85 +75,98 @@ def crea_database():
 def inserisci_dati_esempio(conn, cursor):
     """Inserisce dati di esempio nel database"""
     
-    # Tipi di appuntamento
-    tipi = [
-        ('Consulenza', 'Consulenza generale', 60, '#3498db'),
-        ('Visita medica', 'Visita medica di routine', 45, '#2ecc71'),
-        ('Controllo', 'Controllo periodico', 30, '#f39c12'),
-        ('Urgenza', 'Appuntamento urgente', 30, '#e74c3c'),
-        ('Follow-up', 'Visita di controllo successiva', 30, '#9b59b6'),
+    # Categorie
+    categorie = [
+        ('Lavoro', 'Task lavorativi', '#3498db'),
+        ('Studio', 'Attività di studio e apprendimento', '#9b59b6'),
+        ('Personale', 'Impegni personali', '#2ecc71'),
+        ('Salute', 'Visite mediche e fitness', '#e74c3c'),
+        ('Casa', 'Lavori domestici e manutenzione', '#f39c12'),
+        ('Famiglia', 'Tempo con famiglia e amici', '#1abc9c'),
     ]
     
     cursor.executemany('''
-        INSERT OR IGNORE INTO tipi_appuntamento (nome_tipo, descrizione, durata_minuti, colore)
-        VALUES (?, ?, ?, ?)
-    ''', tipi)
-    
-    # Clienti di esempio
-    clienti = [
-        ('Mario', 'Rossi', 'mario.rossi@email.it', '333-1234567', '339-7654321', 'Via Roma', '10', 'Milano', '20100', 'MI', 'Cliente storico'),
-        ('Laura', 'Bianchi', 'laura.bianchi@email.it', '334-2345678', None, 'Corso Vittorio Emanuele', '25', 'Torino', '10121', 'TO', ''),
-        ('Giuseppe', 'Verdi', 'giuseppe.verdi@email.it', '335-3456789', '338-1111111', 'Via Garibaldi', '5', 'Roma', '00100', 'RM', 'Preferisce appuntamenti mattutini'),
-        ('Anna', 'Russo', 'anna.russo@email.it', '336-4567890', None, 'Piazza Duomo', '1', 'Firenze', '50100', 'FI', ''),
-        ('Luca', 'Ferrari', 'luca.ferrari@email.it', '337-5678901', '340-2222222', 'Via Dante', '15', 'Bologna', '40100', 'BO', 'Allergico a determinati farmaci'),
-        ('Francesca', 'Romano', 'francesca.romano@email.it', '338-6789012', None, 'Via Manzoni', '30', 'Napoli', '80100', 'NA', ''),
-        ('Paolo', 'Esposito', 'paolo.esposito@email.it', '339-7890123', '341-3333333', 'Viale Europa', '8', 'Palermo', '90100', 'PA', 'Richiede sempre fattura'),
-        ('Chiara', 'Conti', 'chiara.conti@email.it', '340-8901234', None, 'Via Veneto', '22', 'Genova', '16100', 'GE', ''),
-    ]
-    
-    cursor.executemany('''
-        INSERT INTO clienti (nome, cognome, email, telefono, telefono_secondario, via, numero_civico, citta, cap, provincia, note)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', clienti)
+        INSERT OR IGNORE INTO categorie (nome_categoria, descrizione, colore)
+        VALUES (?, ?, ?)
+    ''', categorie)
     
     # Appuntamenti di esempio
     base_date = datetime.now()
     appuntamenti = []
     
+    # Task di esempio realistici
+    task_examples = [
+        ("Riunione team", "Riunione settimanale con il team di progetto", "Lavoro", "alta", 5, 2.0, False),
+        ("Palestra", "Allenamento cardio e pesi", "Salute", "media", 3, 1.5, False),
+        ("Spesa settimanale", "Comprare generi alimentari per la settimana", "Personale", "bassa", 2, 1.0, False),
+        ("Studiare Python", "Completare corso online su machine learning", "Studio", "alta", 7, 3.0, False),
+        ("Dentista", "Controllo semestrale", "Salute", "media", 2, 1.0, False),
+        ("Presentazione cliente", "Preparare e presentare proposta", "Lavoro", "critica", 8, 4.0, True),
+        ("Riparare rubinetto", "Chiamare idraulico per perdita", "Casa", "alta", 4, 0.5, True),
+        ("Compleanno mamma", "Organizzare cena di compleanno", "Famiglia", "alta", 6, 3.0, False),
+        ("Report mensile", "Completare report per il management", "Lavoro", "alta", 6, 2.5, False),
+        ("Yoga", "Lezione di yoga online", "Salute", "bassa", 2, 1.0, False),
+        ("Corso inglese", "Lezione settimanale di inglese", "Studio", "media", 4, 1.5, False),
+        ("Pagare bollette", "Pagamento utenze mensili", "Personale", "alta", 1, 0.5, True),
+    ]
+    
+    # Mappa categorie
+    categoria_map = {cat[0]: i+1 for i, cat in enumerate(categorie)}
+    
     # Genera appuntamenti per i prossimi 30 giorni
     for i in range(30):
-        num_appuntamenti_giorno = random.randint(1, 4)
+        num_task_giorno = random.randint(0, 3)
         data = base_date + timedelta(days=i)
         
-        for j in range(num_appuntamenti_giorno):
-            ora_inizio = random.randint(8, 17)
-            minuti = random.choice([0, 15, 30, 45])
-            id_cliente = random.randint(1, len(clienti))
-            id_tipo = random.randint(1, len(tipi))
-            urgente = random.choice([0, 0, 0, 1])  # 25% di probabilità di essere urgente
-            stato = random.choice(['confermato', 'confermato', 'confermato', 'in_attesa'])
+        for j in range(num_task_giorno):
+            task = random.choice(task_examples)
+            titolo, descrizione, categoria, priorita, difficolta, tempo_ore, urgente = task
             
-            durata = 30 if urgente else random.choice([30, 45, 60])
-            ora_fine_h = ora_inizio + (durata // 60)
-            ora_fine_m = minuti + (durata % 60)
-            if ora_fine_m >= 60:
-                ora_fine_h += 1
-                ora_fine_m -= 60
+            # Genera orario casuale
+            ora_inizio_h = random.randint(8, 18)
+            ora_inizio_m = random.choice([0, 15, 30, 45])
+            ora_inizio = f"{ora_inizio_h:02d}:{ora_inizio_m:02d}"
+            
+            # Calcola ora fine basata sul tempo stimato
+            if tempo_ore:
+                fine_dt = datetime.strptime(ora_inizio, '%H:%M') + timedelta(hours=tempo_ore)
+                ora_fine = fine_dt.strftime('%H:%M')
+            else:
+                ora_fine = None
+            
+            stato = random.choice(['da_fare', 'da_fare', 'da_fare', 'in_corso', 'completato'])
+            
+            # Se completato, aggiungi data completamento
+            data_completamento = None
+            if stato == 'completato':
+                data_completamento = (data - timedelta(hours=random.randint(1, 48))).isoformat()
             
             appuntamenti.append((
-                id_cliente,
-                id_tipo,
+                titolo,
+                descrizione,
                 data.strftime('%Y-%m-%d'),
-                f"{ora_inizio:02d}:{minuti:02d}",
-                f"{ora_fine_h:02d}:{ora_fine_m:02d}",
-                f"Appuntamento {i+1}-{j+1}",
-                f"Descrizione appuntamento per il cliente",
-                urgente,
+                ora_inizio,
+                ora_fine,
+                categoria_map.get(categoria, 1),
+                priorita,
+                difficolta,
+                tempo_ore,
                 stato,
-                "Studio Principale",
-                ""
+                1 if urgente else 0,
+                "",  # note
+                data_completamento
             ))
     
     cursor.executemany('''
-        INSERT INTO appuntamenti (id_cliente, id_tipo, data_appuntamento, ora_inizio, ora_fine, 
-                                 titolo, descrizione, urgente, stato, luogo, note)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO appuntamenti (titolo, descrizione, data_appuntamento, ora_inizio, ora_fine,
+                                 id_categoria, priorita, difficolta, tempo_stimato_ore, 
+                                 stato, urgente, note, data_completamento)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', appuntamenti)
     
     conn.commit()
-    print(f"✓ Inseriti {len(clienti)} clienti")
-    print(f"✓ Inseriti {len(tipi)} tipi di appuntamento")
-    print(f"✓ Inseriti {len(appuntamenti)} appuntamenti")
+    print(f"✓ Inserite {len(categorie)} categorie")
+    print(f"✓ Inseriti {len(appuntamenti)} appuntamenti/task")
 
 def mostra_statistiche(cursor):
     """Mostra statistiche del database"""
@@ -180,48 +174,72 @@ def mostra_statistiche(cursor):
     print("STATISTICHE DATABASE")
     print("="*60)
     
-    # Totale clienti
-    cursor.execute('SELECT COUNT(*) FROM clienti')
-    print(f"Totale clienti: {cursor.fetchone()[0]}")
-    
     # Totale appuntamenti
     cursor.execute('SELECT COUNT(*) FROM appuntamenti')
-    print(f"Totale appuntamenti: {cursor.fetchone()[0]}")
+    print(f"Totale task: {cursor.fetchone()[0]}")
     
-    # Appuntamenti urgenti
-    cursor.execute('SELECT COUNT(*) FROM appuntamenti WHERE urgente = 1')
-    print(f"Appuntamenti urgenti: {cursor.fetchone()[0]}")
-    
-    # Appuntamenti per stato
+    # Per stato
     cursor.execute('''
         SELECT stato, COUNT(*) as num 
         FROM appuntamenti 
         GROUP BY stato
         ORDER BY num DESC
     ''')
-    print("\nAppuntamenti per stato:")
+    print("\nTask per stato:")
     for row in cursor.fetchall():
         print(f"  - {row[0]}: {row[1]}")
     
-    # Prossimi 5 appuntamenti
+    # Per priorità
+    cursor.execute('''
+        SELECT priorita, COUNT(*) as num 
+        FROM appuntamenti 
+        GROUP BY priorita
+        ORDER BY 
+            CASE priorita
+                WHEN 'critica' THEN 1
+                WHEN 'alta' THEN 2
+                WHEN 'media' THEN 3
+                WHEN 'bassa' THEN 4
+            END
+    ''')
+    print("\nTask per priorità:")
+    for row in cursor.fetchall():
+        print(f"  - {row[0]}: {row[1]}")
+    
+    # Urgenti
+    cursor.execute('SELECT COUNT(*) FROM appuntamenti WHERE urgente = 1')
+    print(f"\nTask urgenti: {cursor.fetchone()[0]}")
+    
+    # Prossimi 5 task da fare
     cursor.execute('''
         SELECT 
-            a.data_appuntamento,
-            a.ora_inizio,
-            c.nome || ' ' || c.cognome as cliente,
-            a.titolo,
-            a.urgente
-        FROM appuntamenti a
-        JOIN clienti c ON a.id_cliente = c.id_cliente
-        WHERE a.data_appuntamento >= date('now')
-        ORDER BY a.data_appuntamento, a.ora_inizio
+            data_appuntamento,
+            ora_inizio,
+            titolo,
+            priorita,
+            urgente
+        FROM appuntamenti
+        WHERE data_appuntamento >= date('now')
+        AND stato != 'completato'
+        ORDER BY 
+            urgente DESC,
+            CASE priorita
+                WHEN 'critica' THEN 1
+                WHEN 'alta' THEN 2
+                WHEN 'media' THEN 3
+                WHEN 'bassa' THEN 4
+            END,
+            data_appuntamento,
+            ora_inizio
         LIMIT 5
     ''')
     
-    print("\nProssimi 5 appuntamenti:")
+    print("\nProssimi 5 task (per priorità e urgenza):")
     for row in cursor.fetchall():
-        urgente_marker = " 🚨 URGENTE" if row[4] else ""
-        print(f"  - {row[0]} alle {row[1]} - {row[2]}: {row[3]}{urgente_marker}")
+        urgente_marker = " 🚨" if row[4] else ""
+        priorita_emoji = {'critica': '🔴', 'alta': '🟠', 'media': '🟡', 'bassa': '🟢'}.get(row[3], '')
+        orario = f" alle {row[1]}" if row[1] else ""
+        print(f"  - {row[0]}{orario} {priorita_emoji} {row[2]}{urgente_marker}")
     
     print("="*60 + "\n")
 
